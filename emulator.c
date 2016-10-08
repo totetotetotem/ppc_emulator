@@ -43,9 +43,47 @@ uint32_t get_code(Emulator* emu, int index) {
     return ret;
 }
 
+void load_immidiate(Emulator* emu) {
+    uint32_t code = get_code(emu,0);
+    uint8_t opcode = (code >> 24) & 0xfc;
+    uint8_t src = (code >> 21) & 0x10;
+    uint8_t dst = (code >> 16) & 0x10;
+    uint16_t immidiate = code & 0xffff;
+
+    printf("li r%d, %d\n", src, immidiate);
+    emu->registers[src] = immidiate;
+    emu->pc += 4;
+}
+
+void load_immidiate_shifted(Emulator* emu) {
+    uint32_t code = get_code(emu,0);
+    uint8_t opcode = (code >> 24) & 0xfc;
+    uint8_t src = (code >> 21) & 0x1f;
+    uint8_t dst = (code >> 16) & 0x1f;
+    uint16_t immidiate = code & 0xffff;
+
+    printf("lis r%d, %d\n", src, immidiate);
+    emu->registers[src] = (immidiate << 16);
+    emu->pc += 4;
+}
+
+void add_immidiate(Emulator *emu) {
+    uint32_t code = get_code(emu,0);
+    uint8_t opcode = (code >> 24) & 0xfc;
+    uint8_t src = (code >> 21) & 0x1f;
+    uint8_t dst = (code >> 16) & 0x1f;
+    uint16_t immidiate = code & 0xffff;
+
+    emu->registers[src] = emu->registers[dst] + immidiate;
+    printf("addi r%d, r%d, %d\n", src, dst, immidiate);
+    emu->pc += 4;
+}
+
 typedef void instruction_func_t(Emulator*);
 instruction_func_t* instructions[256];
 void init_instructions(void) {
+    instructions[0x3c] = load_immidiate_shifted;
+    instructions[0x38] = add_immidiate;
 }
 
 int main (int argc, char* argv[]) {
@@ -70,17 +108,26 @@ int main (int argc, char* argv[]) {
     fread(emu->memory, 0x200, 1, binary);
 
     fclose(binary);
+
+    init_instructions();
+
     while(emu->pc < MEMORY_SIZE) {
         uint32_t code = get_code(emu,0);
         if(code != 0)
             printf("0x%08x \n", code);
 
         uint8_t opcode = (code >> 24) & 0xfc;
+
         if(instructions[opcode] == NULL) {
             printf("%02x is not registered opcode\n", opcode);
-            return 1;
+            break;
         }
-        emu->pc += 4;
+
+        if(opcode == 0x00) {
+            printf("\nend of program\n\n");
+            break;
+        }
+        instructions[opcode](emu);
     }
 
 
