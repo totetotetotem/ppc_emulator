@@ -60,10 +60,23 @@ void load_immidiate_shifted(Emulator* emu) {
     uint8_t opcode = (code >> 24) & 0xfc;
     uint8_t src = (code >> 21) & 0x1f;
     uint8_t dst = (code >> 16) & 0x1f;
-    uint16_t immidiate = code & 0xffff;
+    int16_t immidiate = code & 0xffff;
 
     printf("lis r%d, %d\n", src, immidiate);
     emu->registers[src] = (immidiate << 16);
+    emu->pc += 4;
+}
+
+void load_word_and_zero(Emulator* emu) {
+    uint32_t code = get_code(emu,0);
+    uint8_t opcode = (code >> 24) & 0xfc;
+    uint8_t dst = (code >> 21) & 0x1f;
+    uint8_t src = (code >> 16) & 0x1f;
+    uint16_t immidiate = code & 0xffff;
+
+    printf("lwz r%d, %d(r%d)\n", dst, immidiate, src);
+    uint32_t address = emu->registers[src] & 0x0fffffff;
+    emu->registers[dst] = emu->memory[address + immidiate];
     emu->pc += 4;
 }
 
@@ -84,6 +97,7 @@ instruction_func_t* instructions[256];
 void init_instructions(void) {
     instructions[0x3c] = load_immidiate_shifted;
     instructions[0x38] = add_immidiate;
+    instructions[0x80] = load_word_and_zero;
 }
 
 int main (int argc, char* argv[]) {
