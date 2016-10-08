@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define COND 32
 #define LINK 33
@@ -43,18 +44,6 @@ uint32_t get_code(Emulator* emu, int index) {
     return ret;
 }
 
-void load_immidiate(Emulator* emu) {
-    uint32_t code = get_code(emu,0);
-    uint8_t opcode = (code >> 24) & 0xfc;
-    uint8_t src = (code >> 21) & 0x10;
-    uint8_t dst = (code >> 16) & 0x10;
-    uint16_t immidiate = code & 0xffff;
-
-    printf("li r%d, %d\n", src, immidiate);
-    emu->registers[src] = immidiate;
-    emu->pc += 4;
-}
-
 void load_immidiate_shifted(Emulator* emu) {
     uint32_t code = get_code(emu,0);
     uint8_t opcode = (code >> 24) & 0xfc;
@@ -80,24 +69,65 @@ void load_word_and_zero(Emulator* emu) {
     emu->pc += 4;
 }
 
-void add_immidiate(Emulator *emu) {
+void add_immidiate_or_load_immidiate(Emulator *emu) {
     uint32_t code = get_code(emu,0);
     uint8_t opcode = (code >> 24) & 0xfc;
     uint8_t src = (code >> 21) & 0x1f;
     uint8_t dst = (code >> 16) & 0x1f;
     uint16_t immidiate = code & 0xffff;
 
-    emu->registers[src] = emu->registers[dst] + immidiate;
-    printf("addi r%d, r%d, %d\n", src, dst, immidiate);
+    if(dst == 0) {
+        printf("li r%d, %d\n", src, immidiate);
+        emu->registers[src] = immidiate;
+    } else {
+        printf("addi r%d, r%d, %d\n", src, dst, immidiate);
+        emu->registers[src] = emu->registers[dst] + immidiate;
+    }
     emu->pc += 4;
+}
+
+void move_to_register(Emulator *emu) {
+    uint32_t code = get_code(emu,0);
+    uint8_t opcode = (code >> 24) & 0xfc;
+    uint8_t src = (code >> 21) & 0x1f;
+    uint8_t dst = (code >> 16) & 0x1f;
+    uint16_t immidiate = code & 0xffff;
+
+    if(dst == 0x1001) {
+        printf("mtctr r%d\n", src);
+        emu->registers[COUNT] = emu->registers[src];
+    } else if (dst == 0x1000) {
+        printf("mtlr r%d\n", src);
+        emu->registers[LINK] = emu->registers[src];
+    } else if (dst == 0x0001) {
+        printf("mtxer r%d\n", src);
+        emu->registers[INT_EXCEPTION] = emu->registers[src];
+    }
+    emu->pc += 4;
+}
+
+void system_call(Emulator *emu) {
+    if(emu->registers[0] == 4) {
+        printf("write %d, 0x%x, %d\n", emu->registers[3], emu->registers[4] & 0x0ff0ffff, emu->registers[5]);
+        write((int)emu->registers[3], emu->memory+(emu->registers[4] & 0x0ff0ffff), emu->registers[5]);
+    } else if(emu->registers[0] == 1) {
+        printf("exit %d\n", emu->registers[3]);
+        exit(emu->registers[3]);
+    }
+    emu->pc += 4;
+}
+
+void branch_decrement_non_zero(Emulator* emu) {
 }
 
 typedef void instruction_func_t(Emulator*);
 instruction_func_t* instructions[256];
 void init_instructions(void) {
     instructions[0x3c] = load_immidiate_shifted;
-    instructions[0x38] = add_immidiate;
+    instructions[0x38] = add_immidiate_or_load_immidiate;
     instructions[0x80] = load_word_and_zero;
+    instructions[0x7c] = move_to_register;
+    instructions[0x44] = system_call;
 }
 
 int main (int argc, char* argv[]) {
@@ -127,20 +157,21 @@ int main (int argc, char* argv[]) {
 
     while(emu->pc < MEMORY_SIZE) {
         uint32_t code = get_code(emu,0);
-        if(code != 0)
-            printf("0x%08x \n", code);
+//        if(code != 0)
+//            printf("0x%08x \n", code);
 
         uint8_t opcode = (code >> 24) & 0xfc;
+
+        if(opcode == 0x00) {
+            printf("\nend of program\n\n");
+            break;
+        }
 
         if(instructions[opcode] == NULL) {
             printf("%02x is not registered opcode\n", opcode);
             break;
         }
 
-        if(opcode == 0x00) {
-            printf("\nend of program\n\n");
-            break;
-        }
         instructions[opcode](emu);
     }
 
